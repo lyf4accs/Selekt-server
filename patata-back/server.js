@@ -35,16 +35,17 @@ app.post('/detectFood', async (req, res) => {
       image: { content: imageBase64 }
     });
     const labels = result.labelAnnotations.map(label => label.description);
-    
+    console.log(labels);
     // Traducir las etiquetas al español usando Translation API
     const [translations] = await clientTranslate.translate(labels, 'es');
     const translatedLabels = Array.isArray(translations) ? translations : [translations];
 
     // Filtrar las etiquetas que coincidan con palabras clave de alimentos
     const foodLabels = translatedLabels.filter(label => foodKeywords.includes(label.toLowerCase()));
+    console.log(foodLabels);
 
     // Enviar los resultados de vuelta al cliente
-    res.json({ foodLabels });
+    res.json({ labels });
   } catch (error) {
     console.error("Error al detectar alimentos:", error);
     res.status(500).json({ error: "Error al procesar la imagen" });
