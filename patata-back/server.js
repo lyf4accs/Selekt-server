@@ -13,7 +13,7 @@ app.use(cors()); // Permitir peticiones de otros dominios (CORS)
 app.use(bodyParser.json({ limit: '10mb' })); // Aumentar el límite de tamaño de las imágenes en base64
 
 // Ruta al archivo de credenciales JSON
-const keyFilename = path.join(__dirname, 'credencialesAPI.json');
+const keyFilename = path.join(__dirname, 'nuevasCredenciales.json');
 
 // Crear cliente de Vision API y Translation API
 const clientVision = new vision.ImageAnnotatorClient({ keyFilename });
