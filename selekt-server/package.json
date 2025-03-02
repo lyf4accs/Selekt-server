@@ -1,0 +1,23 @@
+{
+  "name": "selekt-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": {
+    "name": "Laura Junli Illán Ferrández",
+    "url": "https://github.com/lyf4accs"
+  },
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@google-cloud/translate": "^8.5.1",
+    "@google-cloud/vision": "^4.3.3",
+    "body-parser": "^1.20.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "image-hash": "^5.3.2"
+  }
+}
