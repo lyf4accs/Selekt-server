@@ -9,10 +9,12 @@ const app = express();
 
 app.use(cors());
 app.use(bodyParser.json({ limit: "10mb" }));
+
 const UPLOAD_DIR = path.join(__dirname, "uploads");
 if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR);
 }
+
 // Función para eliminar todos los archivos en el directorio uploads
 const deleteAllFilesInDirectory = (dirPath) => {
   const files = fs.readdirSync(dirPath);
@@ -21,12 +23,27 @@ const deleteAllFilesInDirectory = (dirPath) => {
     fs.unlinkSync(filePath); // Eliminar cada archivo
   }
 };
-// Serve uploaded images as static files (moved here after defining UPLOAD_DIR)
+
+// Serve uploaded images as static files
 app.use("/uploads", express.static(UPLOAD_DIR));
 
-// Almacenar hashes de imágenes procesadas
 let processedHashes = new Set();
 let duplicateImages = [];
+let similarImages = [];
+
+// Función para calcular la distancia Hamming entre dos hashes
+function hammingDistance(hash1, hash2) {
+  let distance = 0;
+  let xor = hash1 ^ hash2; // XOR de los dos hashes
+  while (xor) {
+    distance += xor & 1; // Sumar 1 por cada bit diferente
+    xor >>>= 1; // Desplazar los bits a la derecha
+  }
+  return distance;
+}
+
+// Definir un umbral para considerar imágenes similares 
+const SIMILAR_THRESHOLD = 40;
 
 async function isDuplicateImage(imagePath) {
   try {
@@ -36,11 +53,21 @@ async function isDuplicateImage(imagePath) {
     // Obtener el hash perceptual (pHash)
     const hash = image.hash();
 
-    // Comprobar si ya existe el hash
+    // Comprobar si ya existe el hash (duplicado)
     if (processedHashes.has(hash)) {
       console.log(`Imagen duplicada detectada: ${imagePath}`);
       duplicateImages.push(imagePath); // Guardar duplicado
       return true;
+    }
+
+    // Comparar con los hashes existentes para ver si es similar
+    for (let existingHash of processedHashes) {
+      const distance = hammingDistance(hash, existingHash);
+      if (distance <= SIMILAR_THRESHOLD) {
+        console.log(`Imagen similar detectada: ${imagePath}`);
+        similarImages.push(imagePath); // Guardar imagen similar
+        return false;
+      }
     }
 
     // Guardar el hash si es nuevo
@@ -50,11 +77,16 @@ async function isDuplicateImage(imagePath) {
     console.error("Error al calcular pHash:", error);
     return false;
   }
-}app.post("/api/processImages", async (req, res) => {
-   deleteAllFilesInDirectory(UPLOAD_DIR);
+}
+
+app.post("/api/processImages", async (req, res) => {
+  // Limpiar la carpeta uploads antes de procesar las nuevas imágenes
+  deleteAllFilesInDirectory(UPLOAD_DIR);
+
   const images = req.body.images;
   const imagePaths = [];
-  duplicateImages = []; 
+  duplicateImages = [];
+  similarImages = []; // Reset similar images for each request
 
   try {
     for (let i = 0; i < images.length; i++) {
@@ -84,6 +116,7 @@ async function isDuplicateImage(imagePath) {
       const imagePath = path.join(UPLOAD_DIR, `image_${i + 1}.jpg`);
       fs.writeFileSync(imagePath, imageBuffer);
 
+      // Check if the image was saved successfully
       if (!fs.existsSync(imagePath)) {
         console.error(`No se pudo guardar la imagen en ${imagePath}`);
         continue;
@@ -91,22 +124,37 @@ async function isDuplicateImage(imagePath) {
 
       imagePaths.push(imagePath);
 
+      // Verificar si es duplicado o similar
       await isDuplicateImage(imagePath);
     }
 
-    // Seleccionar la primera imagen duplicada como cover photo si hay duplicados
-    const coverPhoto = duplicateImages.length > 0 ? `http://localhost:3000/uploads/${path.basename(duplicateImages[0])}` : null;
-
+    // Devolver las imágenes duplicadas y similares
     const albums = [
       {
         name: "Duplicados",
-        coverPhoto: coverPhoto,  
-        photos: duplicateImages.map((img) => `http://localhost:3000/uploads/${path.basename(img)}`), // Absolute URLs
+        coverPhoto:
+          duplicateImages.length > 0
+            ? `http://localhost:3000/uploads/${path.basename(
+                duplicateImages[0]
+              )}`
+            : null,
+        photos: duplicateImages.map(
+          (img) => `http://localhost:3000/uploads/${path.basename(img)}`
+        ), // Absolute URLs
+      },
+      {
+        name: "Similares",
+        coverPhoto:
+          similarImages.length > 0
+            ? `http://localhost:3000/uploads/${path.basename(similarImages[0])}`
+            : null,
+        photos: similarImages.map(
+          (img) => `http://localhost:3000/uploads/${path.basename(img)}`
+        ), // Absolute URLs
       },
     ];
 
     res.json({ albums });
-
   } catch (error) {
     console.error("Error al procesar las imágenes:", error);
     res.status(500).json({ error: "Error al procesar las imágenes" });
