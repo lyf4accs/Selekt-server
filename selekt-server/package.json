@@ -15,9 +15,11 @@
   "dependencies": {
     "@google-cloud/translate": "^8.5.1",
     "@google-cloud/vision": "^4.3.3",
+    "@jimp/core": "^1.6.0",
     "body-parser": "^1.20.3",
     "cors": "^2.8.5",
     "express": "^4.21.1",
-    "image-hash": "^5.3.2"
+    "image-hash": "^5.3.2",
+    "jimp": "^0.22.12"
   }
 }

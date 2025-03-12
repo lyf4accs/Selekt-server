@@ -1,99 +1,118 @@
 const express = require("express");
-const vision = require("@google-cloud/vision");
-const phash = require("phash");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const path = require("path");
-const sharp = require("sharp");
 const fs = require("fs");
+const Jimp = require("jimp");
 
-// Inicializar el servidor
 const app = express();
 
-// Configurar middlewares
-app.use(cors()); // Permitir peticiones de otros dominios (CORS)
-app.use(bodyParser.json({ limit: "10mb" })); // Aumentar el límite de tamaño de las imágenes en base64
-
-// Ruta al archivo de credenciales JSON de Google Cloud Vision
-const keyFilename = path.join(__dirname, "credencialesSELEKT.json");
-
-// Crear cliente de Vision API
-const clientVision = new vision.ImageAnnotatorClient({ keyFilename });
-
-// Variable para almacenar imágenes procesadas
-let processedImages = [];
-
-// Lista de "moodboards", agrupando por colores
-let moodboards = {};
-
-// Función para calcular el hash perceptual de la imagen usando phash
-async function getImageHash(imageBuffer) {
-  return phash(imageBuffer); // Usando la librería phash para obtener el hash perceptual
+app.use(cors());
+app.use(bodyParser.json({ limit: "10mb" }));
+const UPLOAD_DIR = path.join(__dirname, "uploads");
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR);
 }
-
-// Función para obtener los colores dominantes de una imagen usando Google Vision
-async function getDominantColors(imageBuffer) {
-  const [result] = await clientVision.imageProperties({
-    image: { content: imageBuffer },
-  });
-  const colors = result.imagePropertiesAnnotation.dominantColors.colors;
-  return colors;
-}
-
-// Función para agrupar imágenes por colores
-async function addToMoodboard(imageBuffer, imageName) {
-  try {
-    // Obtener el hash perceptual para evitar duplicados
-    const imageHash = await getImageHash(imageBuffer);
-    if (processedImages.includes(imageHash)) {
-      console.log(`Imagen duplicada detectada: ${imageName}`);
-      return; // No agregar si ya existe un duplicado
-    }
-    processedImages.push(imageHash); // Marcar la imagen como procesada
-
-    // Obtener los colores dominantes de la imagen usando Google Vision
-    const dominantColors = await getDominantColors(imageBuffer);
-    const mainColor = dominantColors[0].color;
-
-    // Crear un identificador para el moodboard basado en el color dominante
-    const moodboardKey = `rgb(${mainColor.red}, ${mainColor.green}, ${mainColor.blue})`;
-
-    // Si el moodboard ya existe, añadir la imagen; de lo contrario, crear uno nuevo
-    if (!moodboards[moodboardKey]) {
-      moodboards[moodboardKey] = [];
-    }
-
-    moodboards[moodboardKey].push(imageName);
-    console.log(`Imagen añadida al moodboard: ${imageName}`);
-  } catch (error) {
-    console.error("Error al procesar la imagen para el moodboard:", error);
+// Función para eliminar todos los archivos en el directorio uploads
+const deleteAllFilesInDirectory = (dirPath) => {
+  const files = fs.readdirSync(dirPath);
+  for (let file of files) {
+    const filePath = path.join(dirPath, file);
+    fs.unlinkSync(filePath); // Eliminar cada archivo
   }
-}
+};
+// Serve uploaded images as static files (moved here after defining UPLOAD_DIR)
+app.use("/uploads", express.static(UPLOAD_DIR));
 
-// Endpoint para procesar imágenes y agruparlas en moodboards
-app.post("/processImages", async (req, res) => {
-  const images = req.body.images; // Recibir un array de imágenes en base64
+// Almacenar hashes de imágenes procesadas
+let processedHashes = new Set();
+let duplicateImages = [];
+
+async function isDuplicateImage(imagePath) {
   try {
-    for (const [index, imageBase64] of images.entries()) {
-      const imageBuffer = Buffer.from(imageBase64, "base64");
+    // Cargar la imagen con Jimp
+    const image = await Jimp.read(imagePath);
 
-      // Generar nombre para la imagen (en este caso, solo usando el índice)
-      const imageName = `image_${index + 1}`;
+    // Obtener el hash perceptual (pHash)
+    const hash = image.hash();
 
-      // Añadir la imagen al moodboard basado en su color dominante
-      await addToMoodboard(imageBuffer, imageName);
+    // Comprobar si ya existe el hash
+    if (processedHashes.has(hash)) {
+      console.log(`Imagen duplicada detectada: ${imagePath}`);
+      duplicateImages.push(imagePath); // Guardar duplicado
+      return true;
     }
 
-    // Enviar respuesta con los moodboards generados
-    res.json({ moodboards });
+    // Guardar el hash si es nuevo
+    processedHashes.add(hash);
+    return false;
+  } catch (error) {
+    console.error("Error al calcular pHash:", error);
+    return false;
+  }
+}app.post("/api/processImages", async (req, res) => {
+   deleteAllFilesInDirectory(UPLOAD_DIR);
+  const images = req.body.images;
+  const imagePaths = [];
+  duplicateImages = []; 
+
+  try {
+    for (let i = 0; i < images.length; i++) {
+      let imageData = images[i];
+
+      // Check if the data is in a data URL format
+      if (imageData.startsWith("data:image")) {
+        const base64Data = imageData.split(",")[1]; // Extract base64 part only
+        imageData = base64Data;
+      }
+
+      console.log(`Imagen ${i + 1}:`);
+      console.log("Base64 length:", imageData.length); // Log the length of the base64 string
+
+      // Convert base64 data to Buffer
+      const imageBuffer = Buffer.from(imageData, "base64");
+
+      // Log the buffer length and first few bytes
+      console.log("Buffer length:", imageBuffer.length);
+      console.log("First 10 bytes of buffer:", imageBuffer.slice(0, 10));
+
+      if (imageBuffer.length === 0) {
+        console.log("La imagen está vacía");
+        continue; // Skip empty images
+      }
+
+      const imagePath = path.join(UPLOAD_DIR, `image_${i + 1}.jpg`);
+      fs.writeFileSync(imagePath, imageBuffer);
+
+      if (!fs.existsSync(imagePath)) {
+        console.error(`No se pudo guardar la imagen en ${imagePath}`);
+        continue;
+      }
+
+      imagePaths.push(imagePath);
+
+      await isDuplicateImage(imagePath);
+    }
+
+    // Seleccionar la primera imagen duplicada como cover photo si hay duplicados
+    const coverPhoto = duplicateImages.length > 0 ? `http://localhost:3000/uploads/${path.basename(duplicateImages[0])}` : null;
+
+    const albums = [
+      {
+        name: "Duplicados",
+        coverPhoto: coverPhoto,  
+        photos: duplicateImages.map((img) => `http://localhost:3000/uploads/${path.basename(img)}`), // Absolute URLs
+      },
+    ];
+
+    res.json({ albums });
+
   } catch (error) {
     console.error("Error al procesar las imágenes:", error);
     res.status(500).json({ error: "Error al procesar las imágenes" });
   }
 });
 
-
-// Iniciar el servidor en el puerto 3000
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
