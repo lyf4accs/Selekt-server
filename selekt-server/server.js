@@ -20,7 +20,7 @@
 
     const app = express();
     app.use(cors());
-    app.use(bodyParser.json({ limit: "50mb" }));
+    app.use(bodyParser.json({ limit: "100mb" }));
 
     const UPLOAD_DIR = path.join(__dirname, "uploads");
     if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
@@ -36,7 +36,7 @@
     let processedHashes = new Map();
     let duplicateGroups = new Map();
     let similarGroups = [];
-    const SIMILAR_THRESHOLD = 7; // Reducido para mayor precisión
+    const SIMILAR_THRESHOLD = 6; // Reducido para mayor precisión
 
     function hammingDistance(hash1, hash2) {
       let distance = 0;
