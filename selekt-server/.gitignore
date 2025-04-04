@@ -1,2 +1,5 @@
 credencialesSELEKT.json
 /uploads
+.vercel
+/node_modules
+.env
