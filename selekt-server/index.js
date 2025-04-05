@@ -26,7 +26,7 @@ const app = express();
 const corsOptions = {
   origin: [
     "http://localhost:4200", // Si usas Angular en local
-    "https://tu-frontend-en-netlify.netlify.app", // Tu frontend en producción
+    "https://selek-t-app.netlify.app", // Tu frontend en producción
   ],
   methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization", "Accept"],
@@ -36,9 +36,7 @@ app.use(cors(corsOptions));
 app.options("/api/*", cors(corsOptions));  // Para manejar las solicitudes OPTIONS
 app.use(bodyParser.json({ limit: "100mb" }));
 
-const BASE_URL =
-  process.env.BASE_URL ||
-  "https://selekt-server-59ndg39ug-lyf4accs-projects.vercel.app";
+const BASE_URL = process.env.BASE_URL || "https://selekt-server.vercel.app/";
 
 app.get("/", (req, res) => {
   const htmlResponse = `
@@ -67,115 +65,113 @@ function hammingDistance(hash1, hash2) {
   }
   return distance;
 }
-
-async function uploadImageToSupabase(imageBuffer, imageName) {
-  // Subir la imagen a Supabase Storage
-  const { data, error } = await supabase.storage
-    .from("images") // Asegúrate de que este sea tu bucket en Supabase
-    .upload(imageName, imageBuffer, {
-      cacheControl: "3600",
-      upsert: true, // Reemplaza el archivo si ya existe
-    });
-
-  if (error) {
-    console.error("Error subiendo la imagen:", error);
-    throw new Error("Error subiendo la imagen");
-  }
-
-  // Obtener la URL pública de la imagen subida
-  const imageUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/images/${imageName}`;
-  return imageUrl;
+// Función para descargar las imágenes desde las URLs proporcionadas
+async function downloadImage(imageUrl) {
+  const response = await fetch(imageUrl);
+  const buffer = await response.buffer();
+  return buffer;
 }
 
-async function processImage(imageBuffer, imageName) {
+// Procesar una imagen para obtener su phash
+async function processImage(imageBuffer, imageUrl) {
   try {
     const image = await Jimp.read(imageBuffer);
     const hash = image.hash();
 
+    // Si ya existe este hash, es un duplicado
     if (processedHashes.has(hash)) {
       if (!duplicateGroups.has(hash)) {
         duplicateGroups.set(hash, [processedHashes.get(hash)[0]]);
       }
-      duplicateGroups.get(hash).push(imageName);
+      duplicateGroups.get(hash).push(imageUrl);
       return;
     }
 
+    // Buscar imágenes similares utilizando la distancia de Hamming
     let addedToGroup = false;
     for (let group of similarGroups) {
       const distance = hammingDistance(hash, group.hash);
       if (distance <= SIMILAR_THRESHOLD) {
-        group.images.push(imageName);
+        group.images.push(imageUrl);
         addedToGroup = true;
         break;
       }
     }
 
+    // Si no se añadió a ningún grupo similar, crear un nuevo grupo
     if (!addedToGroup) {
-      similarGroups.push({ hash, images: [imageName] });
+      similarGroups.push({ hash, images: [imageUrl] });
     }
 
-    processedHashes.set(hash, [imageName]);
+    // Registrar la imagen procesada con su hash
+    processedHashes.set(hash, [imageUrl]);
   } catch (error) {
     console.error("Error procesando imagen:", error);
   }
 }
 
+// Endpoint para procesar las imágenes enviadas por el frontend
 app.post("/api/processImages", async (req, res) => {
   console.log("Recibiendo imágenes para procesar...");
+  
+  // Limpiar los grupos previos
   processedHashes.clear();
   duplicateGroups.clear();
   similarGroups = [];
 
-  const images = req.body.images;
-  const imagePaths = [];
-  const imageUrls = [];
+  const images = req.body.images;  // Las imágenes llegan como URLs desde el frontend
 
   for (let i = 0; i < images.length; i++) {
-    let imageData = images[i].startsWith("data:image")
-      ? images[i].split(",")[1]
-      : images[i];
-    const imageBuffer = Buffer.from(imageData, "base64");
-    const imageName = `image_${i + 1}.jpg`;
+    const imageUrl = images[i];  // URL de la imagen que ha sido subida a Supabase
 
     try {
-      const imageUrl = await uploadImageToSupabase(imageBuffer, imageName);
-      imageUrls.push(imageUrl);
-      await processImage(imageBuffer, imageName);
+      // Descargar la imagen desde la URL
+      const imageBuffer = await downloadImage(imageUrl);
+      // Procesar la imagen
+      await processImage(imageBuffer, imageUrl);
     } catch (error) {
-      console.error("Error subiendo o procesando imagen", error);
+      console.error("Error descargando o procesando imagen", error);
       return res
         .status(500)
-        .json({ message: "Error subiendo o procesando imagen" });
+        .json({ message: "Error descargando o procesando imagen" });
     }
   }
 
+  // Crear los álbumes de imágenes duplicadas y similares
   const albums = [];
   let albumId = 1;
 
+  // Crear álbumes de duplicados
   duplicateGroups.forEach((images) => {
     if (images.length > 1) {
       albums.push({
         name: `Álbum de Duplicados ${albumId++}`,
-        coverPhoto: images[0], // Usamos la URL de la primera imagen
-        photos: images,
+        coverPhoto: images[0],  // Usamos la URL de la primera imagen como portada
+        photos: images,  // Todas las imágenes duplicadas
       });
     }
   });
 
+  // Crear álbumes de similares
   similarGroups.forEach((group) => {
     if (group.images.length > 1) {
       albums.push({
         name: `Álbum de Similares ${albumId++}`,
-        coverPhoto: group.images[0], // Usamos la URL de la primera imagen
-        photos: group.images,
+        coverPhoto: group.images[0],  // Usamos la URL de la primera imagen como portada
+        photos: group.images,  // Todas las imágenes similares
       });
     }
   });
 
+  // Devolver los álbumes con las imágenes duplicadas y similares
   res.json({ albums });
 });
 
-
+// Iniciar el servidor
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Servidor corriendo en http://localhost:${port}`);
+});
 
 module.exports = app;
 
