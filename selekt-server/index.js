@@ -20,8 +20,8 @@ const Jimp = require("jimp");
 const supabase = require("./supabaseClient");
 const IS_LOCAL = process.env.LOCAL_ENV === "true";
 
-
 const app = express();
+
 // Permitir solicitudes de localhost y el dominio de tu frontend
 const corsOptions = {
   origin: [
@@ -33,11 +33,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // Para manejar las solicitudes OPTIONS
+app.options("*", cors(corsOptions)); // Para manejar las solicitudes OPTIONS
 app.use(bodyParser.json({ limit: "100mb" }));
-
-  const UPLOAD_DIR = path.join(__dirname, "uploads");
-    if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
 
 const BASE_URL = process.env.BASE_URL || "https://selekt-server.vercel.app";
 
@@ -55,151 +52,172 @@ app.get("/", (req, res) => {
   res.send(htmlResponse);
 });
 
-// Server
-  //esto es sólo para local
-  const deleteAllFilesInDirectory = (dirPath) => {
-      fs.readdirSync(dirPath).forEach((file) =>
-        fs.unlinkSync(path.join(dirPath, file))
-      );
-    };
+// Solo en local: eliminar archivos del directorio de uploads
+const deleteAllFilesInDirectory = (dirPath) => {
+  fs.readdirSync(dirPath).forEach((file) =>
+    fs.unlinkSync(path.join(dirPath, file))
+  );
+};
 
-    app.use("/uploads", express.static(UPLOAD_DIR));
+// Solo en local: crear el directorio de uploads
+const UPLOAD_DIR = path.join(__dirname, "uploads");
+if (IS_LOCAL && !fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
 
-    let processedHashes = new Map();
-    let duplicateGroups = new Map();
-    let similarGroups = [];
-    const SIMILAR_THRESHOLD = 6; // Reducido para mayor precisión
+app.use("/uploads", express.static(UPLOAD_DIR));
 
-    function hammingDistance(hash1, hash2) {
-      let distance = 0;
-      for (let i = 0; i < hash1.length; i++) {
-        if (hash1[i] !== hash2[i]) distance++;
-      }
-      return distance;
+let processedHashes = new Map();
+let duplicateGroups = new Map();
+let similarGroups = [];
+const SIMILAR_THRESHOLD = 6; // Reducido para mayor precisión
+
+function hammingDistance(hash1, hash2) {
+  let distance = 0;
+  for (let i = 0; i < hash1.length; i++) {
+    if (hash1[i] !== hash2[i]) distance++;
+  }
+  return distance;
+}
+
+async function processImage(imagePath) {
+  try {
+    const isUrl = imagePath.startsWith("http");
+    const imageId = isUrl
+      ? imagePath.split("/").pop()
+      : path.basename(imagePath);
+
+    console.log(`Procesando imagen: ${imageId}`);
+
+    const image = await Jimp.read(imagePath); // Lee desde path local o URL
+    const hash = image.hash();
+    console.log(`Hash generado para ${imageId}: ${hash}`);
+
+    if (processedHashes.has(hash)) {
+      console.log(`Imagen duplicada detectada: ${imageId}`);
+      duplicateGroups.get(hash).push(imagePath);
+      return;
     }
 
-   async function processImage(imagePath) {
-     try {
-       const isUrl = imagePath.startsWith("http");
-       const imageId = isUrl
-         ? imagePath.split("/").pop()
-         : path.basename(imagePath);
-
-       console.log(`Procesando imagen: ${imageId}`);
-
-       const image = await Jimp.read(imagePath); // Lee desde path local o URL
-       const hash = image.hash();
-       console.log(`Hash generado para ${imageId}: ${hash}`);
-
-       if (processedHashes.has(hash)) {
-         console.log(`Imagen duplicada detectada: ${imageId}`);
-         duplicateGroups.get(hash).push(imagePath);
-         return;
-       }
-
-       let addedToGroup = false;
-       for (let group of similarGroups) {
-         const distance = hammingDistance(hash, group.hash);
-         if (distance <= SIMILAR_THRESHOLD) {
-           console.log(
-             `Imagen similar encontrada: ${imageId} (distancia: ${distance})`
-           );
-           group.images.push(imagePath);
-           addedToGroup = true;
-           break;
-         }
-       }
-
-       if (!addedToGroup) {
-         console.log(`Imagen única añadida: ${imageId}`);
-         similarGroups.push({ hash, images: [imagePath] });
-       }
-
-       processedHashes.set(hash, [imagePath]);
-       if (!duplicateGroups.has(hash)) {
-         duplicateGroups.set(hash, [imagePath]); // Para que funcionen los álbumes de duplicados
-       }
-     } catch (error) {
-       console.error(`Error procesando ${imagePath}:`, error);
-     }
-   }
-
-
-    app.post("/", async (req, res) => {
-      console.log("Recibiendo imágenes para procesar...");
-      deleteAllFilesInDirectory(UPLOAD_DIR);
-      processedHashes.clear();
-      duplicateGroups.clear();
-      similarGroups = [];
-
-      const images = req.body.images;
-
-      for (let i = 0; i < images.length; i++) {
-        let imageData = images[i].startsWith("data:image")
-          ? images[i].split(",")[1]
-          : images[i];
+    let addedToGroup = false;
+    for (let group of similarGroups) {
+      const distance = hammingDistance(hash, group.hash);
+      if (distance <= SIMILAR_THRESHOLD) {
         console.log(
-          `Procesando imagen ${i + 1}, tamaño base64: ${imageData.length}`
+          `Imagen similar encontrada: ${imageId} (distancia: ${distance})`
         );
-        const imageBuffer = Buffer.from(imageData, "base64");
-
-        // Guardar local
-        const imagePath = path.join(UPLOAD_DIR, `image_${i + 1}.jpg`);
-        fs.writeFileSync(imagePath, imageBuffer);
-
-        // Subir a Supabase
-        const fileName = `image_${Date.now()}_${i + 1}.jpg`;
-        const { data, error } = await supabase.storage
-          .from("images")
-          .upload(fileName, imageBuffer, {
-            contentType: "image/jpeg",
-            upsert: true,
-          });
-
-        if (error) {
-          console.error("Error subiendo imagen a Supabase:", error);
-          continue;
-        }
-
-        const { data: publicUrlData } = supabase.storage
-          .from("images")
-          .getPublicUrl(fileName);
-
-        const publicUrl = publicUrlData.publicUrl;
-
-        // Solo una vez: usa local o supabase según entorno
-        const imageSource = IS_LOCAL ? imagePath : publicUrl;
-        await processImage(imageSource);
+        group.images.push(imagePath);
+        addedToGroup = true;
+        break;
       }
+    }
 
-      console.log("Generando álbumes...");
-      const albums = [];
-      let albumId = 1;
+    if (!addedToGroup) {
+      console.log(`Imagen única añadida: ${imageId}`);
+      similarGroups.push({ hash, images: [imagePath] });
+    }
 
-      duplicateGroups.forEach((images) => {
-        if (images.length > 1) {
-          albums.push({
-            name: `Álbum de Duplicados ${albumId++}`,
-            coverPhoto: images[0],
-            photos: images,
-          });
-        }
+    processedHashes.set(hash, [imagePath]);
+    if (!duplicateGroups.has(hash)) {
+      duplicateGroups.set(hash, [imagePath]); // Para que funcionen los álbumes de duplicados
+    }
+  } catch (error) {
+    console.error(`Error procesando ${imagePath}:`, error);
+  }
+}
+
+app.post("/", async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "POST, GET, OPTIONS, PUT, DELETE"
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Accept"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end(); // Preflight
+  }
+
+  console.log("Recibiendo imágenes para procesar...");
+  if (IS_LOCAL) {
+    deleteAllFilesInDirectory(UPLOAD_DIR); // Solo en local
+  }
+  processedHashes.clear();
+  duplicateGroups.clear();
+  similarGroups = [];
+
+  const images = req.body.images;
+
+  for (let i = 0; i < images.length; i++) {
+    let imageData = images[i].startsWith("data:image")
+      ? images[i].split(",")[1]
+      : images[i];
+    console.log(
+      `Procesando imagen ${i + 1}, tamaño base64: ${imageData.length}`
+    );
+    const imageBuffer = Buffer.from(imageData, "base64");
+
+    let imagePath;
+    if (IS_LOCAL) {
+      // Guardar localmente solo si es local
+      imagePath = path.join(UPLOAD_DIR, `image_${i + 1}.jpg`);
+      fs.writeFileSync(imagePath, imageBuffer);
+    }
+
+    // Subir a Supabase
+    const fileName = `image_${Date.now()}_${i + 1}.jpg`;
+    const { data, error } = await supabase.storage
+      .from("images")
+      .upload(fileName, imageBuffer, {
+        contentType: "image/jpeg",
+        upsert: true,
       });
 
-      similarGroups.forEach((group) => {
-        if (group.images.length > 1) {
-          albums.push({
-            name: `Álbum de Similares ${albumId++}`,
-            coverPhoto: group.images[0],
-            photos: group.images,
-          });
-        }
+    if (error) {
+      console.error("Error subiendo imagen a Supabase:", error);
+      continue;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from("images")
+      .getPublicUrl(fileName);
+
+    const publicUrl = publicUrlData.publicUrl;
+
+    // Solo una vez: usa local o supabase según entorno
+    const imageSource = IS_LOCAL ? imagePath : publicUrl;
+    await processImage(imageSource);
+  }
+
+  console.log("Generando álbumes...");
+  const albums = [];
+  let albumId = 1;
+
+  duplicateGroups.forEach((images) => {
+    if (images.length > 1) {
+      albums.push({
+        name: `Álbum de Duplicados ${albumId++}`,
+        coverPhoto: images[0],
+        photos: images,
       });
+    }
+  });
 
-      res.json({ albums });
-    });
+  similarGroups.forEach((group) => {
+    if (group.images.length > 1) {
+      albums.push({
+        name: `Álbum de Similares ${albumId++}`,
+        coverPhoto: group.images[0],
+        photos: group.images,
+      });
+    }
+  });
 
-  const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
-    app.use("/uploads", express.static(UPLOAD_DIR));
+  res.json({ albums });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
+
 module.exports = app;
