@@ -26,6 +26,8 @@ const app = express();
 const corsOptions = {
   origin: [
     "http://localhost:4200", // Si usas Angular en local
+    "http://localhost:3000",
+    "https://selekt-server.vercel.app",
     "https://selek-t-app.netlify.app", // Tu frontend en producción
   ],
   methods: ["GET", "POST", "PUT", "DELETE"],
@@ -88,6 +90,8 @@ async function processImage(imagePath) {
     console.log(`Procesando imagen: ${imageId}`);
 
     const image = await Jimp.read(imagePath); // Lee desde path local o URL
+    const tempImagePath = path.join(UPLOAD_DIR, `temp_image_${imageId}.jpg`);
+    await image.resize(24, 24).write(tempImagePath); // Redimensiona para hashing
     const hash = image.hash();
     console.log(`Hash generado para ${imageId}: ${hash}`);
 
@@ -118,6 +122,11 @@ async function processImage(imagePath) {
     processedHashes.set(hash, [imagePath]);
     if (!duplicateGroups.has(hash)) {
       duplicateGroups.set(hash, [imagePath]); // Para que funcionen los álbumes de duplicados
+    }
+
+    // Elimina el archivo temporal después de procesar
+    if (IS_LOCAL) {
+      fs.unlinkSync(tempImagePath);
     }
   } catch (error) {
     console.error(`Error procesando ${imagePath}:`, error);
