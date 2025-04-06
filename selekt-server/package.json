@@ -19,7 +19,9 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.1",
     "image-hash": "^5.3.2",
-    "jimp": "^0.22.12"
+    "jimp": "^0.22.12",
+    "node-fetch": "^3.3.2",
+    "axios": "^0.21.1"
   },
   "scripts": {
     "serve": "node index.js"
