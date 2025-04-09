@@ -13,7 +13,12 @@ const handler = async (req, res) => {
 
   try {
     const image = await Jimp.read(url);
-    const hash = image.hash();
+    await image.resize(24, 24);
+
+    const hashRaw = image.hash();
+    const hash = String(hashRaw); // aseguramos string
+    console.log(`Hash generado para ${url}: ${hash}`);
+
     res.status(200).json({ hash, url });
   } catch (err) {
     console.error("Error procesando imagen:", err);
@@ -21,4 +26,4 @@ const handler = async (req, res) => {
   }
 };
 
-module.exports = { default: handler };
+module.exports = handler;

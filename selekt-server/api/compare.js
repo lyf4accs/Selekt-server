@@ -6,39 +6,47 @@ const handler = (req, res) => {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST")
+  if (req.method !== "POST") {
     return res.status(405).json({ message: "Method Not Allowed" });
+  }
 
   const { hashes } = req.body;
-
   const SIMILAR_THRESHOLD = 6;
+
   const processedHashes = new Map();
   const duplicateGroups = new Map();
   const similarGroups = [];
 
   for (const { hash, url } of hashes) {
-    if (processedHashes.has(hash)) {
-      duplicateGroups.get(hash).push(url);
+    const h = String(hash);
+    console.log(`Recibido: ${url} con hash ${h}`);
+
+    if (processedHashes.has(h)) {
+      duplicateGroups.get(h).push(url);
       continue;
     }
 
-    let addedToGroup = false;
+    let minDistance = Infinity;
+    let bestGroup = null;
+
     for (const group of similarGroups) {
-      const distance = hammingDistance(hash, group.hash);
-      if (distance <= SIMILAR_THRESHOLD) {
-        group.images.push(url);
-        addedToGroup = true;
-        break;
+      const distance = hammingDistance(h, group.hash);
+      console.log(`Comparando con grupo ${group.hash}, distancia: ${distance}`);
+      if (distance < minDistance) {
+        minDistance = distance;
+        bestGroup = group;
       }
     }
 
-    if (!addedToGroup) {
-      similarGroups.push({ hash, images: [url] });
+    if (minDistance <= SIMILAR_THRESHOLD) {
+      bestGroup.images.push(url);
+    } else {
+      similarGroups.push({ hash: h, images: [url] });
     }
 
-    processedHashes.set(hash, [url]);
-    if (!duplicateGroups.has(hash)) {
-      duplicateGroups.set(hash, [url]);
+    processedHashes.set(h, [url]);
+    if (!duplicateGroups.has(h)) {
+      duplicateGroups.set(h, [url]);
     }
   }
 
@@ -65,7 +73,8 @@ const handler = (req, res) => {
     }
   });
 
+  console.log("Álbumes generados:", JSON.stringify(albums, null, 2));
   res.status(200).json({ albums });
 };
 
-module.exports = { default: handler };
+module.exports = handler;

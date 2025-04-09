@@ -24,7 +24,7 @@
     "axios": "^0.21.1"
   },
   "scripts": {
-    "serve": "node index.js"
+    "serve": "node server.js"
   },
   "engines": {
     "node": "18.x"
