@@ -14,14 +14,16 @@
     "@google-cloud/vision": "^4.3.3",
     "@jimp/core": "^1.6.0",
     "@supabase/supabase-js": "^2.49.4",
+    "axios": "^0.21.4",
     "body-parser": "^1.20.3",
+    "colorthief": "^2.6.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.1",
     "image-hash": "^5.3.2",
     "jimp": "^0.22.12",
     "node-fetch": "^3.3.2",
-    "axios": "^0.21.1"
+    "node-vibrant": "^3.1.6"
   },
   "scripts": {
     "serve": "node server.js"

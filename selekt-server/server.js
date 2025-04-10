@@ -140,6 +140,110 @@ app.post("/api/compare", (req, res) => {
   console.log("Álbumes generados:", JSON.stringify(albums, null, 2));
   res.status(200).json({ albums });
 });
+const axios = require("axios");
+const ColorThief = require("colorthief");
+const Vibrant = require("node-vibrant");
+
+async function getImagePaletteData(imageUrl) {
+  try {
+    const response = await axios.get(imageUrl, { responseType: "arraybuffer" });
+    const buffer = Buffer.from(response.data, "binary");
+
+    const palette = await ColorThief.getPalette(buffer, 5);
+    const vibrant = await Vibrant.from(buffer).getPalette();
+
+    const mainTone = Object.keys(vibrant)
+      .filter((k) => vibrant[k])
+      .sort((a, b) => vibrant[b].population - vibrant[a].population)[0];
+
+    const hexPalette = palette.map(([r, g, b]) => {
+      return `#${[r, g, b]
+        .map((v) => v.toString(16).padStart(2, "0"))
+        .join("")}`;
+    });
+
+    return {
+      url: imageUrl,
+      palette: hexPalette,
+      tone: mainTone?.toLowerCase() || "neutral",
+    };
+  } catch (err) {
+    console.error("❌ Error analizando paleta para", imageUrl, err.message);
+    return null;
+  }
+}
+
+
+// POST /api/color
+app.post("/api/color", async (req, res) => {
+  console.log("🟡 Entrando en /api/color");
+
+  const { urls } = req.body;
+  const results = [];
+
+  console.log("→ Analizando paletas para:", urls.length, "imágenes");
+
+  for (const url of urls) {
+    const data = await getImagePaletteData(url);
+    if (data) results.push(data);
+  }
+
+  console.log(
+    "Paletas generadas:",
+    results.map((r) => ({
+      url: r.url,
+      tone: r.tone,
+      palette: r.palette.slice(0, 2), // preview log
+    }))
+  );
+
+  res.status(200).json({ results });
+});
+
+
+function simplifyHexToGroup(hex) {
+  const [r, g, b] = hex.match(/\w\w/g).map((h) => parseInt(h, 16));
+  const step = 500; // más grande = más agrupación
+  return `${Math.floor(r / step)}-${Math.floor(g / step)}-${Math.floor(
+    b / step
+  )}`;
+}
+
+app.post("/api/palettes", (req, res) => {
+  console.log("🟢 Entrando en /api/palettes");
+
+  const { data } = req.body;
+  if (!Array.isArray(data)) {
+    return res.status(400).json({ error: "El formato debe ser un array." });
+  }
+
+  const groups = new Map();
+
+  for (const item of data) {
+    const simplifiedColor = simplifyHexToGroup(item.palette[0]);
+    const groupKey = `${item.tone}-${simplifiedColor}`;
+    if (!groups.has(groupKey)) groups.set(groupKey, []);
+    groups.get(groupKey).push(item.url);
+  }
+
+  const albums = [];
+  let id = 1;
+
+  groups.forEach((photos, key) => {
+    if (photos.length > 0) {
+      albums.push({
+        name: `Moodboard ${id++}`,
+        colorKey: key,
+        coverPhoto: photos[0],
+        photos,
+      });
+    }
+  });
+
+  console.log("🧩 Álbumes generados:", albums.length);
+  res.status(200).json({ albums });
+});
+
 
 app.listen(PORT, () =>
   console.log(`Servidor corriendo en http://localhost:${PORT}`)
