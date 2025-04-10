@@ -1,43 +1,51 @@
-module.exports = function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+// api/palettes.js
+function simplifyHexToGroup(hex) {
+  const [r, g, b] = hex.match(/\w\w/g).map((h) => parseInt(h, 16));
+  const step = 96; // más pequeño = más grupos
+  return `${Math.floor(r / step)}-${Math.floor(g / step)}-${Math.floor(
+    b / step
+  )}`;
+}
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST")
-    return res.status(405).json({ message: "Method Not Allowed" });
+module.exports = (req, res) => {
+   res.setHeader("Access-Control-Allow-Origin", "*");
+   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  const { colors } = req.body;
-  if (!Array.isArray(colors))
-    return res.status(400).json({ error: "Debe enviar un array de 'colors'" });
+   if (req.method === "OPTIONS") return res.status(200).end();
+   if (req.method !== "POST") {
+     return res.status(405).json({ message: "Method Not Allowed" });
+   }
 
-  const COLOR_THRESHOLD = 50;
-  const groups = [];
+  console.log("🟢 Entrando en /api/palettes");
+  const { data } = req.body;
 
-  const colorDistance = (a, b) =>
-    Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
-
-  for (const { url, rgb } of colors) {
-    let added = false;
-
-    for (const group of groups) {
-      if (colorDistance(rgb, group.representative) < COLOR_THRESHOLD) {
-        group.photos.push(url);
-        added = true;
-        break;
-      }
-    }
-
-    if (!added) {
-      groups.push({ representative: rgb, photos: [url] });
-    }
+  if (!Array.isArray(data)) {
+    return res.status(400).json({ error: "El formato debe ser un array." });
   }
 
-  const albums = groups.map((g, i) => ({
-    name: `Moodboard ${i + 1}`,
-    coverPhoto: g.photos[0],
-    photos: g.photos,
-  }));
+  const groups = new Map();
 
+  for (const item of data) {
+    const simplifiedColor = simplifyHexToGroup(item.palette[0]); // usamos el primer color
+    if (!groups.has(simplifiedColor)) groups.set(simplifiedColor, []);
+    groups.get(simplifiedColor).push(item.url);
+  }
+
+  const albums = [];
+  let id = 1;
+
+  groups.forEach((photos, key) => {
+    if (photos.length > 0) {
+      albums.push({
+        name: `Moodboard ${id++}`,
+        colorKey: key,
+        coverPhoto: photos[0],
+        photos,
+      });
+    }
+  });
+
+  console.log("🧩 Álbumes generados:", albums.length);
   res.status(200).json({ albums });
 };
