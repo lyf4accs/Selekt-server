@@ -200,10 +200,9 @@ app.post("/api/color", async (req, res) => {
   res.status(200).json({ results });
 });
 
-
 function simplifyHexToGroup(hex) {
   const [r, g, b] = hex.match(/\w\w/g).map((h) => parseInt(h, 16));
-  const step = 500; // más grande = más agrupación
+  const step = 96; // más pequeño = más grupos
   return `${Math.floor(r / step)}-${Math.floor(g / step)}-${Math.floor(
     b / step
   )}`;
@@ -211,8 +210,8 @@ function simplifyHexToGroup(hex) {
 
 app.post("/api/palettes", (req, res) => {
   console.log("🟢 Entrando en /api/palettes");
-
   const { data } = req.body;
+
   if (!Array.isArray(data)) {
     return res.status(400).json({ error: "El formato debe ser un array." });
   }
@@ -220,10 +219,9 @@ app.post("/api/palettes", (req, res) => {
   const groups = new Map();
 
   for (const item of data) {
-    const simplifiedColor = simplifyHexToGroup(item.palette[0]);
-    const groupKey = `${item.tone}-${simplifiedColor}`;
-    if (!groups.has(groupKey)) groups.set(groupKey, []);
-    groups.get(groupKey).push(item.url);
+    const simplifiedColor = simplifyHexToGroup(item.palette[0]); // usamos el primer color
+    if (!groups.has(simplifiedColor)) groups.set(simplifiedColor, []);
+    groups.get(simplifiedColor).push(item.url);
   }
 
   const albums = [];
@@ -243,6 +241,7 @@ app.post("/api/palettes", (req, res) => {
   console.log("🧩 Álbumes generados:", albums.length);
   res.status(200).json({ albums });
 });
+
 
 
 app.listen(PORT, () =>
